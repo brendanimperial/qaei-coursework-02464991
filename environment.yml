@@ -1,0 +1,17 @@
+name: contrails
+channels:
+  - defaults
+dependencies:
+  - numpy
+  - python=3.11
+  - netcdf4
+  - pandas
+  - xarray
+  - cartopy
+  - matplotlib
+  - scipy
+  - jupyterlab
+  - pycontrails
+  - ipykernel
+  - tqdm
+prefix: C:\Users\Brendan\miniconda3\envs\contrails

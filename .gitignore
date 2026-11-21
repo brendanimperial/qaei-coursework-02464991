@@ -1,0 +1,7 @@
+__pycache__/
+.ipynb_checkpoints/
+*.nc
+*.grib
+Emissions/
+GC_Output/
+QAEI_Contrails/
