@@ -7,7 +7,7 @@ import numpy as np
 from qaei_missionandemissions_helpers import (dms_to_deg, isa, calc_LTO, cruise_mission, calc_mass_end,
                         cruise_fuel, calc_fuel_emissions, NOx_EI_BFFM2, nvPM_EI_BFFM2)
 from qaei_ADVANCEDmissionandemissions_helpers import (nvPM_EI_MEEM, load_ps_params,
-                        reynolds_number, lift_coefficient)
+                        ps_cruise_performance, ps_cruise_fuel)
 
 # ---------------- Scenario ----------------
 airline = "Legacy"
@@ -119,11 +119,23 @@ print("Cruise nvPM number (total):", nvPM_num_cruise, "#")
 
 # ------------------ ADVANCED METHOOOOOD! ------------------------
 
-# Poll-Schumann fuel burn
-ps = load_ps_params("A21N")                                     # PS aircraft parameters
-mass_end_PS = ps["OEM_i_kg"] + seats * 100.0 * load_factor      # end-of-cruise mass, PS-table empty mass [kg]
+# ---------------- ADVANCED: Poll-Schumann (PS) fuel burn ----------------
+ps = load_ps_params("A21N")                                             # PS aircraft parameters (Part 3, Tables 1-2)
+mass_end_PS = ps["OEM_i_kg"] + seats * 100.0 * load_factor              # end-of-cruise mass using PS-table empty mass [kg]
+mass_end_card = mass_end                                                # end-of-cruise mass using data-card estimate [kg]
 
-Re = reynolds_number(ps["Sref_m2"], mach_cruise, T_cruise, p_cruise)
-CL = lift_coefficient(mass_end_PS, mach_cruise, p_cruise, ps["Sref_m2"])
-print("PS Reynolds number:", Re)
-print("PS lift coefficient (end of cruise):", CL)
+# PS performance snapshot at end of cruise (single point)
+ps_out = ps_cruise_performance(mass_end_PS, mach_cruise, T_cruise, p_cruise, ps)
+print("\nPS performance at end of cruise (PS-table mass):")
+print("  CL:", ps_out["CL"], "| CD:", ps_out["CD"], "| L/D:", ps_out["L_over_D"])
+print("  eta:", ps_out["eta"], "| CT/CT_etaB:", ps_out["x"])
+print("  Fuel flow (total):", ps_out["ff"], "kg/s | per engine:", ps_out["ff"] / n_engines, "kg/s")
+
+# PS cruise fuel burn, 1-minute backward stepping, for both mass cases
+print("\nPS cruise fuel burn (1-minute steps):")
+for label, m_end in [("PS-table mass", mass_end_PS), ("Data-card mass", mass_end_card)]:
+    fuel_PS, time_PS, hist_PS = ps_cruise_fuel(m_end, flight_dist_total, mach_cruise, h_cruise_m, ps)
+    print(f"  {label}: fuel = {fuel_PS:.1f} kg | time = {time_PS / 3600:.3f} h | "
+          f"start mass = {m_end + fuel_PS:.0f} kg | mean L/D-weighted ff per engine = "
+          f"{fuel_PS / time_PS / n_engines:.4f} kg/s")
+print("  Basic (Breguet, L/D = 20, eta = 0.3):", fuel_cruise, "kg")

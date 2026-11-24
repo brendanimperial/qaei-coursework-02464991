@@ -7,6 +7,7 @@ import warnings
 import numpy as np
 import os
 import pandas as pd
+from qaei_missionandemissions_helpers import isa
 
 # Part 1: Using the Poll-Schumann performance model to get a better estimate of the mission performance (specifically the fuel burn for a more accurate estimate to help build up the 3D 1degx1degx100m grid)
 
@@ -87,31 +88,62 @@ def ps_cruise_performance(m, M, T, p, ps, j3=40.0, deterioration=0.975, LCV=43.1
     # 6. Thrust coefficient (Eqns. 17-18)
     # Since we will assume a steady, level cruise at constant speed: theta, dV/dt = 0 so Eq. 18 is just CT = CD = CL / (L/D)
     # CT = CL / (L/D) = CD, i.e. total thrust equals drag.
-    CT = CL / L_over_D                                                  # total thrust coefficient, Eqs. 17-18 [-]
+    CT = CL / L_over_D                                                  # total thrust coefficient, Eqns. 17-18 [-]
     
     # 7. Engine overall efficiency (Eqns. 24, 27-29, 66)
-    eta_B = eta_1 * M**eta_2                                            # best overall efficiency at this Mach, Eqn 27 [-]
+    eta_B = eta_1 * M**eta_2                                            # best overall efficiency at this Mach, Eqn. 27 [-]
     h2 = ((1 + 0.55 * M) / (1 + 0.55 * M_DO)) * (M_DO / M)**2           # Eq. 28 [-]
-    CT_etaB = h2 * CT_DO                                                # thrust coefficient at best efficiency, Eq. 28 [-]
+    CT_etaB = h2 * CT_DO                                                # thrust coefficient at best efficiency, Eqn. 28 [-]
     x = CT / CT_etaB                                                    # normalised thrust coefficient [-]
     if np.any((x < 0.3) | (x >= 1.8)) or np.any(M <= 0.4):
         warnings.warn("PS: CT/CT_etaB outside 0.3-1.8 or M <= 0.4; Eq. 24 (M > 0.4 form) not valid here.")
-    eta = eta_B * (1 - 0.43 * (x - 1)**2) * deterioration               # overall efficiency, Eq. 24, with in-service factor, Eq. 66 [-]
-    #   check: eta_B = 0.345, CT_etaB = 0.0308, x = 0.973, eta = 0.336
+    eta = eta_B * (1 - 0.43 * (x - 1)**2) * deterioration               # overall efficiency, Eq. 24, with in-service factor, Eqn. 66 [-]
 
     # 8. Fuel flow (Eqn. 19)
     a = np.sqrt(gamma * R * T)                                          # speed of sound [m/s]
-    ff = (gamma / 2) * p * a * S * CT * M**3 / (eta * LCV)              # total aircraft fuel mass flow rate, Eq. 19 [kg/s]
-    #   check: ff = 0.564 kg/s (whole aircraft)
+    ff = (gamma / 2) * p * a * S * CT * M**3 / (eta * LCV)              # total aircraft fuel mass flow rate, Eqn. 19 [kg/s]
+    ff_engine = ff / pn['n_engine']                                     # fuel flow rate per engine [kg/s]
 
     return {"CL": CL, "Re_ac": Re_ac, "CD0": CD0, "k1": k1, "e_LS": e_LS, "K": K,
             "M_CC": M_CC, "X": X, "CDw_creep": CDw_creep, "CDw_rise": CDw_rise, "CDw": CDw,
             "CD": CD, "L_over_D": L_over_D, "CT": CT,
             "eta_B": eta_B, "CT_etaB": CT_etaB, "x": x, "eta": eta, "ff": ff}
 
-    # TODO: return dict with CL, Re, CD0, e_LS, K, CDw, CD, L_over_D, CT, eta_B, CT_etaB, eta, ff
+def ps_cruise_fuel(mass_end, distance, M, h, ps, dt=60.0, **ps_kwargs):
+    """Return total cruise fuel burn [kg] using Poll-Schumann, stepping backwards in time from end of cruise.
+    mass_end = aircraft mass at end of cruise [kg], distance = cruise distance [m], M = cruise Mach [-],
+    h = cruise altitude [m], ps = PS parameter dict, dt = time step [s].
+    ps_kwargs are passed to ps_cruise_performance (e.g. j3, deterioration, LCV).
+    Returns (fuel_total [kg], flight_time [s], history dict of arrays ordered from start to end of cruise)."""
+    gamma, R = 1.4, 287.05                                              # air properties [-], [J/kgK]
 
+    # 1. Atmosphere and speed (constant: fixed altitude and Mach)
+    T, p = isa(h)                                                       # ISA static temperature [K] and pressure [Pa]
+    V = M * np.sqrt(gamma * R * T)                                      # true airspeed [m/s]
 
+    # 2. Initialise at END of cruise
+    m = mass_end                                                        # current mass [kg]
+    s = distance                                                        # distance from start of cruise [m]
+    t = 0.0                                                             # time elapsed, counted backwards from end of cruise [s]
+    hist = {"t": [], "s": [], "m": [], "ff": [], "dt": []}              # history, filled end -> start
+
+    # 3. Step backwards in time until the start of cruise is reached
+    while s > 0:
+        step = min(dt, s / V)                                           # time step; last step shortened to land on s = 0 [s]
+        ff = ps_cruise_performance(m, M, T, p, ps, **ps_kwargs)["ff"]   # total fuel flow at current mass [kg/s]
+        hist["t"].append(t); hist["s"].append(s); hist["m"].append(m)
+        hist["ff"].append(ff); hist["dt"].append(step)
+        m += ff * step                                                  # earlier in time the aircraft was heavier [kg]
+        s -= V * step                                                   # move back towards start of cruise [m]
+        t += step                                                       # [s]
+
+    # 4. Outputs (history reversed so it runs from start to end of cruise)
+    fuel_total = m - mass_end                                           # total cruise fuel burn [kg]
+    hist = {k: np.array(v[::-1]) for k, v in hist.items()}
+    hist["t"] = t - hist["t"]                                           # convert to time from start of cruise [s]
+    return fuel_total, t, hist
+
+# Part 2: NOx calculations using pyCycle (
 
 
 
@@ -126,7 +158,7 @@ def ps_cruise_performance(m, M, T, p, ps, j3=40.0, deterioration=0.975, LCV=43.1
 # Part 3:
 
 def nvPM_EI_MEEM(ei_mat, M, T, p, OPR):
-    """Return cruise nvPM EIs (mass [mg/kg], number [#/kg]) using MEEM (Ahrens et al., 2022).
+    """Return cruise nvPM EIs (mass [mg/kg], number [#/kg]) using MEEM (Ahrens et al., 2023).
     ei_mat = [[LTO EI mass [mg/kg]], [LTO EI number [#/kg]]], order [T/O, C/O, APP, IDLE].
     LTO EIs must be the system-loss-corrected values from the ICAO EEDB (MEEM Step 0)."""
     gamma, eta_comp, Pi_alt, EF = 1.4, 0.88, 0.95, 1.1          # cruise values (Table 3, Eq. 14)
@@ -156,15 +188,3 @@ def nvPM_EI_MEEM(ei_mat, M, T, p, OPR):
     EI_mass = EI_mass_GR * corr                                 # [mg/kg]
     EI_num = EI_num_GR * corr                                   # [#/kg] (avoids divide-by-zero if EI_mass_GR = 0)
     return EI_mass, EI_num
-
-
-
-# TESTER: DELETE LATER
-
-# ---------------- Quick self-test (only runs when this file is run directly, not when imported) ----------------
-if __name__ == "__main__":
-    from qaei_missionandemissions_helpers import isa
-    T, p = isa(36000 * 0.3048)                                   # ISA at 36,000 ft [K], [Pa]
-    out = ps_cruise_performance(64962, 0.78, T, p, A21N_PS)      # PS-table end-of-cruise mass [kg], M = 0.78
-    for key, value in out.items():
-        print(key, "=", value)
