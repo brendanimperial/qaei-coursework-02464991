@@ -102,7 +102,7 @@ def ps_cruise_performance(m, M, T, p, ps, j3=40.0, deterioration=0.975, LCV=43.1
     # 8. Fuel flow (Eqn. 19)
     a = np.sqrt(gamma * R * T)                                          # speed of sound [m/s]
     ff = (gamma / 2) * p * a * S * CT * M**3 / (eta * LCV)              # total aircraft fuel mass flow rate, Eqn. 19 [kg/s]
-    ff_engine = ff / pn['n_engine']                                     # fuel flow rate per engine [kg/s]
+    ff_engine = ff / ps['n_engine']                                     # fuel flow rate per engine [kg/s]
 
     return {"CL": CL, "Re_ac": Re_ac, "CD0": CD0, "k1": k1, "e_LS": e_LS, "K": K,
             "M_CC": M_CC, "X": X, "CDw_creep": CDw_creep, "CDw_rise": CDw_rise, "CDw": CDw,

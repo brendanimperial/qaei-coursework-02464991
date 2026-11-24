@@ -136,6 +136,6 @@ print("\nPS cruise fuel burn (1-minute steps):")
 for label, m_end in [("PS-table mass", mass_end_PS), ("Data-card mass", mass_end_card)]:
     fuel_PS, time_PS, hist_PS = ps_cruise_fuel(m_end, flight_dist_total, mach_cruise, h_cruise_m, ps)
     print(f"  {label}: fuel = {fuel_PS:.1f} kg | time = {time_PS / 3600:.3f} h | "
-          f"start mass = {m_end + fuel_PS:.0f} kg | mean L/D-weighted ff per engine = "
+          f"start mass = {m_end + fuel_PS:.0f} kg | mean fuel flow per engine = "
           f"{fuel_PS / time_PS / n_engines:.4f} kg/s")
 print("  Basic (Breguet, L/D = 20, eta = 0.3):", fuel_cruise, "kg")

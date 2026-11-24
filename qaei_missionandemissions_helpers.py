@@ -77,7 +77,7 @@ def cruise_fuel(L_over_D, distance, mass_end):
     """Return total cruise fuel burn [kg] using the Breguet range equation, m_fuel = m_end * (exp(C*d) - 1)."""
     g = 9.81                                        # gravitational acceleration [m/s^2]
     LHV = 44e6                                      # lower heating value of kerosene (Jet A-1) [J/kg]
-    eta_o = 0.3                                     # propulsive efficiency (assumed for PW1000)
+    eta_o = 0.3                                     # overall efficiency (assumed for PW1000)
     C = g / (L_over_D * LHV * eta_o)                # Breguet constant [1/m]
     m_fuel = mass_end * (np.exp(C * distance) - 1)  # total cruise fuel burn [kg]
     return m_fuel
@@ -114,19 +114,17 @@ def NOx_EI_BFFM2(ei_vec, M, T, p, ff):
     return EI_SL * (delta**1.02 / theta**3.3)**0.5 * np.exp(H)  # cruise EI_NOx [g/kg]
 
 def nvPM_EI_BFFM2(ei_mat, M, T, p, ff):
-    """Return cruise nvPM EIs (mass [mg/kg], number [#/kg]) using the BFFM2 fuel-flow method.
+    """Return cruise nvPM EIs (mass [mg/kg], number [#/kg]) using BFFM2 (log-log interpolation, as in NOx_EI_BFFM2).
     ei_mat = [[LTO fuel flows [kg/s]], [LTO EI mass [mg/kg]], [LTO EI number [#/kg]]],
     order [T/O, C/O, APP, IDLE]. ff = cruise fuel flow per engine [kg/s].
-    No altitude correction is applied to the interpolated sea-level EIs (basic-method assumption)."""
+    No altitude correction is applied to the interpolated sea-level EIs (basic method, confirmed with module lead)."""
     theta = T / 288.15
     delta = p / 101325.0
-    ff_LTO, EI_mass_LTO, EI_num_LTO = (np.asarray(x, dtype=float) for x in ei_mat)
-    r_inst = np.array([1.010, 1.013, 1.020, 1.100])             # BFFM2 installation factors [T/O, C/O, APP, IDLE]
-    ff_LTO = ff_LTO * r_inst                                    # installed LTO fuel flows [kg/s]
+    ff_LTO, EI_mass_LTO, EI_num_LTO = ei_mat
 
     ff_SL = ff * theta**3.8 / delta * np.exp(0.2 * M**2)       # sea-level equivalent fuel flow [kg/s]
 
     i = np.argsort(ff_LTO)                                      # interp needs increasing x
-    EI_mass = np.interp(ff_SL, ff_LTO[i], EI_mass_LTO[i])       # linear (log-log fails if any EI = 0) [mg/kg]
-    EI_num = np.interp(ff_SL, ff_LTO[i], EI_num_LTO[i])         # [#/kg]
+    EI_mass = 10**np.interp(np.log10(ff_SL), np.log10(ff_LTO[i]), np.log10(EI_mass_LTO[i]))   # log-log interpolation [mg/kg]
+    EI_num = 10**np.interp(np.log10(ff_SL), np.log10(ff_LTO[i]), np.log10(EI_num_LTO[i]))     # log-log interpolation [#/kg]
     return EI_mass, EI_num
