@@ -1,17 +1,14 @@
 # qaei_ADVANCEDmissionandemissions_helpers.py
 # QAEI coursework - ADVANCED method routines for Set 1 (Emissions).
 # Used only for the Results_Advanced outputs; the basic methods live in qaei_missionandemissions_helpers.py.
-# Import into main.py with: from qaei_ADVANCEDmissionandemissions_helpers import nvPM_EI_MEEM
-#
-# Contents so far:
-#   nvPM_EI_MEEM : cruise nvPM EIs (mass, number) using MEEM (Ahrens et al., 2022), 4-point interpolation
+
 
 import warnings
 import numpy as np
 import os
 import pandas as pd
 
-# Part 1: Using the Poll-Schumann performance model to get a better estimate of the mission performance (specifically the fuel burn for a more accurate estimate to help build up the 3D 1degx1degx100m grid
+# Part 1: Using the Poll-Schumann performance model to get a better estimate of the mission performance (specifically the fuel burn for a more accurate estimate to help build up the 3D 1degx1degx100m grid)
 
 # Poll-Schumann aircraft parameters for the Airbus A321neo (ICAO type A21N).
 # Source: pycontrails ps-aircraft-params-20250328.csv (A21N row) which is located in (on my computer): C:\Users\Brendan\miniconda3\envs\contrails\Lib\site-packages\pycontrails\models\ps_model\static. This is hard coded for the sake of the coursework but I will add an option that can just read from the correct data file appropriately such that any aircraft can be selected!
@@ -42,9 +39,8 @@ def ps_cruise_performance(m, M, T, p, ps, j3=40.0, deterioration=0.975, LCV=43.1
     Follows the computational scheme of Poll & Schumann (2025) on page 24.
     m = aircraft mass [kg], M = Mach number, T = static temperature [K], p = static pressure [Pa],
     ps = PS parameter dict (e.g. A21N_PS or load_ps_params('A21N')).
-    winglet_factor = multiplier on e_LS (1.0 = Part 3 Eq. 35; pycontrails uses 1.075),
-    j3 = drag-rise constant (40, p. 17), deterioration = eta multiplier (0.975, Eq. 66),
-    LCV = fuel lower calorific value [J/kg].
+    j3 = drag-rise constant (As in Poll-Schuman Method: "currently set to 40"), deterioration = eta multiplier (0.975, Eq. 66),
+    LCV = fuel lower calorific value [J/kg], change if fuel type is different.
     Returns a dict of intermediate and final quantities; 'ff' is total aircraft fuel flow [kg/s]."""
     gamma, R, g = 1.4, 287.05, 9.80665                                  # air properties, [J/(kg K)], gravity [m/s^2]
     # Extracting the relevant parameters extracted using the above helper (run in main!) this is for all blocks below updated sequentially
@@ -53,12 +49,20 @@ def ps_cruise_performance(m, M, T, p, ps, j3=40.0, deterioration=0.975, LCV=43.1
     cos_sw = ps["cos_sweep"]                                            # cosine of quarter-chord sweep angle [-]
     psi_0 = ps["psi_0"]                                                 # parameter dependent on aircraft geometry [-]
     delta_2 = ps["delta_2"]                                             # delta_2 parameter for specific aircraft [-]
+    M_TF = ps["wing_constant"]                                          # wing technology/thickness constant (M_TF)_ac [-]
+    j_1 = ps["j_1"]                                                     # wave drag constant 1 [-]
+    j_2 = ps["j_2"]                                                     # wave drag constant 2 (drag creep onset) [-]
+    X_DO = ps["Xo"]                                                     # design-optimum value of X, Eq. 43 [-]
+    eta_1 = ps["eta_1"]                                                 # efficiency multiplier, eta_1 = eta_DO / M_DO^eta_2 [-]
+    eta_2 = ps["eta_2"]                                                 # efficiency Mach exponent, Eq. 29 [-]
+    M_DO = ps["M_des"]                                                  # design-optimum Mach number [-]
+    CT_DO = ps["CT_des"]                                                # design-optimum thrust coefficient [-]
 
     # 1. Lift coefficient and aircraft Reynolds number (Eqns. 16 and 34)
     q = (gamma / 2) * p * M**2                                          # dynamic pressure, = 0.5*rho*V^2 [Pa]
-    CL = (m * g) / (q * S)                                              # lift coefficient, lift = weight, Eq. 16 [-]
+    CL = (m * g) / (q * S)                                              # lift coefficient, lift = weight, Eqn. 16 [-]
     mu = 1.458e-6 * T**1.5 / (T + 110.4)                                # dynamic viscosity, Sutherland's law [Pa s]
-    Re_ac = np.sqrt(S) * M * (p / mu) * np.sqrt(gamma / (R * T))        # aircraft reynolds number on l = sqrt(S), Eq. 34 [-]
+    Re_ac = np.sqrt(S) * M * (p / mu) * np.sqrt(gamma / (R * T))        # aircraft reynolds number on l = sqrt(S), Eqn. 34 [-]
 
     # 2. Zero-lift drag (Eqns. 32-33)
     CF = 0.0269 / (Re_ac**0.14)                                         # meanskin friction coefficient [-] 
@@ -66,42 +70,44 @@ def ps_cruise_performance(m, M, T, p, ps, j3=40.0, deterioration=0.975, LCV=43.1
 
     # 3. Lift-dependent drag (Eqns. 35-38)
     k1 = 0.80*(1-0.53*cos_sw)*CD0                                       # k1 for calculating oswald (eqn. 37)
-    e_LS = 1 / (1.03 + delta_2 + (np.pi*AR*k1))                            # subsequently e_LS (eqn. 35)
-    K = 1 / (np.pi*AR*e_LS)                                                # subsequently K (eqn. 38)
-    return {"CL": CL, "Re_ac": Re_ac, "CD0": CD0, "e_LS": e_LS, "K": K} 
-      # TODO: k1 = 0.80 (1 - 0.53 cos_sweep) CD0
-    # TODO: e_LS = winglet_factor / (1.03 + delta_2 + pi AR k1)  (key "delta_2")
-    # TODO: K = 1 / (pi AR e_LS)
-    #   check: e_LS = 0.777, K = 0.0403
+    e_LS = 1 / (1.03 + delta_2 + (np.pi*AR*k1))                         # subsequently e_LS (eqn. 35)
+    K = 1 / (np.pi*AR*e_LS)                                             # subsequently K (eqn. 38)
 
-
-    # 4. Wave drag (Eqs. 40-44)
-    # TODO: M_CC = M_TF - 0.10 CL / cos_sweep^2                 (M_TF = key "wing_constant")
-    # TODO: X = M cos_sweep / M_CC
-    # TODO: CDw = cos_sweep^3 j_1 max(X - j_2, 0)^2 + j3 max(X - X_DO, 0)^4
-    #             (keys "j_1", "j_2", "Xo"; use np.maximum so arrays work)
-    #   check: CDw = 0.00084
-
-    # 5. Total drag and L/D (Eqs. 39, 45)
-    # TODO: CD = CD0 + K CL^2 + CDw ;  L_over_D = CL / CD
-    #   check: CD = 0.0300, L/D = 17.92
+    # 4. Wave drag (Eqns. 40-44)
+    M_CC = M_TF - 0.10 * CL / cos_sw**2                                 # crest-critical Mach number, Eq. 41 [-]
+    X = M * cos_sw / M_CC                                               # variable controlling wave drag, Eq. 40 [-]
+    CDw_creep = cos_sw**3 * j_1 * np.maximum(X - j_2, 0)**2             # drag creep term, Eq. 42 [-]
+    CDw_rise = j3 * np.maximum(X - X_DO, 0)**4                          # additional drag rise beyond X_DO, Eq. 44 [-]
+    CDw = CDw_creep + CDw_rise                                          # wave drag coefficient, Eq. 44 [-]
     
-    # 6. Thrust coefficient (Eqs. 17-18, level unaccelerated flight)
-    # TODO: CT = ?   (hint: what does Eq. 18 reduce to when theta = 0 and dV/dt = 0?)
-    #   check: CT = 0.0300
+    # 5. Total drag and L/D (Eqns. 39, 45)
+    CD = CD0 + K * CL**2 + CDw                                          # total drag coefficient: zero-lift + induced + wave, Eq. 39 [-]
+    L_over_D = CL / CD                                                  # lift-to-drag ratio, Eq. 45 [-]
+    
+    # 6. Thrust coefficient (Eqns. 17-18)
+    # Since we will assume a steady, level cruise at constant speed: theta, dV/dt = 0 so Eq. 18 is just CT = CD = CL / (L/D)
+    # CT = CL / (L/D) = CD, i.e. total thrust equals drag.
+    CT = CL / L_over_D                                                  # total thrust coefficient, Eqs. 17-18 [-]
+    
+    # 7. Engine overall efficiency (Eqns. 24, 27-29, 66)
+    eta_B = eta_1 * M**eta_2                                            # best overall efficiency at this Mach, Eqn 27 [-]
+    h2 = ((1 + 0.55 * M) / (1 + 0.55 * M_DO)) * (M_DO / M)**2           # Eq. 28 [-]
+    CT_etaB = h2 * CT_DO                                                # thrust coefficient at best efficiency, Eq. 28 [-]
+    x = CT / CT_etaB                                                    # normalised thrust coefficient [-]
+    if np.any((x < 0.3) | (x >= 1.8)) or np.any(M <= 0.4):
+        warnings.warn("PS: CT/CT_etaB outside 0.3-1.8 or M <= 0.4; Eq. 24 (M > 0.4 form) not valid here.")
+    eta = eta_B * (1 - 0.43 * (x - 1)**2) * deterioration               # overall efficiency, Eq. 24, with in-service factor, Eq. 66 [-]
+    #   check: eta_B = 0.345, CT_etaB = 0.0308, x = 0.973, eta = 0.336
 
-    # 7. Engine overall efficiency (Eqs. 24, 27-29, 66)
-    # TODO: eta_B = eta_1 * M^eta_2                             (keys "eta_1", "eta_2")
-    # TODO: h2 = ((1 + 0.55 M)/(1 + 0.55 M_DO)) * (M_DO / M)^2  (M_DO = key "M_des")
-    # TODO: CT_etaB = h2 * CT_DO                                (CT_DO = key "CT_des")
-    # TODO: x = CT / CT_etaB ; warn if x outside 0.3-1.8 or M <= 0.4
-    # TODO: eta = eta_B (1 - 0.43 (x - 1)^2) * deterioration
-    #   check: eta_B = 0.345, CT_etaB = 0.0308, eta = 0.336
-
-    # 8. Fuel flow (Eq. 19)
-    # TODO: a = sqrt(gamma R T)
-    # TODO: ff = (gamma/2) p a S CT M^3 / (eta LCV)
+    # 8. Fuel flow (Eqn. 19)
+    a = np.sqrt(gamma * R * T)                                          # speed of sound [m/s]
+    ff = (gamma / 2) * p * a * S * CT * M**3 / (eta * LCV)              # total aircraft fuel mass flow rate, Eq. 19 [kg/s]
     #   check: ff = 0.564 kg/s (whole aircraft)
+
+    return {"CL": CL, "Re_ac": Re_ac, "CD0": CD0, "k1": k1, "e_LS": e_LS, "K": K,
+            "M_CC": M_CC, "X": X, "CDw_creep": CDw_creep, "CDw_rise": CDw_rise, "CDw": CDw,
+            "CD": CD, "L_over_D": L_over_D, "CT": CT,
+            "eta_B": eta_B, "CT_etaB": CT_etaB, "x": x, "eta": eta, "ff": ff}
 
     # TODO: return dict with CL, Re, CD0, e_LS, K, CDw, CD, L_over_D, CT, eta_B, CT_etaB, eta, ff
 
