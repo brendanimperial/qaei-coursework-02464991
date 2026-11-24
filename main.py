@@ -4,8 +4,9 @@
 
 # Importing required packages
 import numpy as np
-from qaei_tut1_helpers import (dms_to_deg, isa, calc_LTO, cruise_mission, calc_mass_end,
-                        cruise_fuel, calc_fuel_emissions, NOx_EI, nvPM_EI)
+from qaei_missionandemissions_helpers import (dms_to_deg, isa, calc_LTO, cruise_mission, calc_mass_end,
+                        cruise_fuel, calc_fuel_emissions, NOx_EI_BFFM2, nvPM_EI_BFFM2)
+from qaei_ADVANCEDmissionandemissions_helpers import nvPM_EI_MEEM
 
 # ---------------- Scenario ----------------
 airline = "Legacy"
@@ -100,14 +101,14 @@ print("Cruise SO2 (total):", SO2_cruise, "kg")
 print("Cruise H2SO4 (total):", H2SO4_cruise, "kg")
 
 # Cruise emissions: NOx (BFFM2)
-EI_NOx_cruise = NOx_EI(np.array([fuel_flow_LTO, EI_NOx_LTO]), mach_cruise, T_cruise, p_cruise, mean_fuel_flowrate_cruise_per_engine)       # [g/kg]
+EI_NOx_cruise = NOx_EI_BFFM2(np.array([fuel_flow_LTO, EI_NOx_LTO]), mach_cruise, T_cruise, p_cruise, mean_fuel_flowrate_cruise_per_engine)       # [g/kg]
 NOx_cruise = EI_NOx_cruise * fuel_cruise / 1000                    # whole aircraft [kg]
 print("Cruise EI NOx:", EI_NOx_cruise, "g/kg")
 print("Cruise NOx (total):", NOx_cruise, "kg")
 
-# Cruise emissions: nvPM (MEEM)
-EI_nvPM_mass_cruise, EI_nvPM_num_cruise = nvPM_EI(
-    np.array([EI_nvPM_mass_LTO, EI_nvPM_num_LTO]), mach_cruise, T_cruise, p_cruise, OPR)   # [mg/kg], [#/kg]
+# Cruise emissions: nvPM (BFFM2)
+EI_nvPM_mass_cruise, EI_nvPM_num_cruise = nvPM_EI_BFFM2(
+    np.array([fuel_flow_LTO, EI_nvPM_mass_LTO, EI_nvPM_num_LTO]), mach_cruise, T_cruise, p_cruise, mean_fuel_flowrate_cruise_per_engine) #[mg/kg], [#/kg]
 nvPM_mass_cruise = EI_nvPM_mass_cruise * fuel_cruise / 1e6       # whole aircraft [kg]
 nvPM_num_cruise = EI_nvPM_num_cruise * fuel_cruise               # whole aircraft [#]
 print("Cruise EI nvPM mass:", EI_nvPM_mass_cruise, "mg/kg")

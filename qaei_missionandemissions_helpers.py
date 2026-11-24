@@ -1,6 +1,6 @@
-# qaei_tut1_helpers.py
-# QAEI coursework - all Tutorial 1 routines and helpers in one module.
-# Import into main.py with: from qaei_tools import ...
+# qaei_missionandemissions_helpers.py
+# QAEI coursework - BASIC method routines (Tutorial 1: mission and emissions).
+# Import into main.py with: from qaei_missionandemissions_helpers import ...
 
 import numpy as np
 
@@ -99,7 +99,7 @@ def calc_fuel_emissions(fuel_mass, FSC=600e-6, eps_S=0.02):
     return m_CO2, m_H2O, m_SO2, m_H2SO4
 
 
-def NOx_EI(ei_vec, M, T, p, ff):
+def NOx_EI_BFFM2(ei_vec, M, T, p, ff):
     """Return cruise EI_NOx [g/kg] using BFFM2. ei_vec = [[LTO fuel flows [kg/s]], [LTO EI_NOx [g/kg]]]."""
     theta = T / 288.15
     delta = p / 101325.0
@@ -113,31 +113,20 @@ def NOx_EI(ei_vec, M, T, p, ff):
     H = -19.0 * (0.0 - 0.0063)                                  # humidity term, q = 0
     return EI_SL * (delta**1.02 / theta**3.3)**0.5 * np.exp(H)  # cruise EI_NOx [g/kg]
 
+def nvPM_EI_BFFM2(ei_mat, M, T, p, ff):
+    """Return cruise nvPM EIs (mass [mg/kg], number [#/kg]) using the BFFM2 fuel-flow method.
+    ei_mat = [[LTO fuel flows [kg/s]], [LTO EI mass [mg/kg]], [LTO EI number [#/kg]]],
+    order [T/O, C/O, APP, IDLE]. ff = cruise fuel flow per engine [kg/s].
+    No altitude correction is applied to the interpolated sea-level EIs (basic-method assumption)."""
+    theta = T / 288.15
+    delta = p / 101325.0
+    ff_LTO, EI_mass_LTO, EI_num_LTO = (np.asarray(x, dtype=float) for x in ei_mat)
+    r_inst = np.array([1.010, 1.013, 1.020, 1.100])             # BFFM2 installation factors [T/O, C/O, APP, IDLE]
+    ff_LTO = ff_LTO * r_inst                                    # installed LTO fuel flows [kg/s]
 
-def nvPM_EI(ei_mat, M, T, p, OPR):
-    """Return cruise nvPM EIs (mass [mg/kg], number [#/kg]) using MEEM (Ahrens et al., 2023).
-    ei_mat = [[LTO EI mass [mg/kg]], [LTO EI number [#/kg]]], order [T/O, C/O, APP, IDLE]."""
-    gamma, eta_comp, Pi_alt, EF = 1.4, 0.88, 0.95, 1.1          # cruise values (Table 3, Eq. 14)
-    k = (gamma - 1) / gamma
-    EI_mass_LTO, EI_num_LTO = ei_mat
-    F_LTO = np.array([1.00, 0.85, 0.30, 0.07])                  # LTO thrust settings F/F00 [-]
+    ff_SL = ff * theta**3.8 / delta * np.exp(0.2 * M**2)       # sea-level equivalent fuel flow [kg/s]
 
-    # Step 1: combustor inlet conditions at altitude
-    T_t = T * (1 + 0.2 * M**2)                                  # total temperature [K]
-    p_t = p * (1 + 0.2 * M**2)**3.5                             # total pressure [Pa]
-    P3_alt = p_t * (1 + Pi_alt * (OPR - 1))                     # Eq. 7 [Pa]
-    T3_alt = T_t * (1 + ((P3_alt / p_t)**k - 1) / eta_comp)     # Eq. 8 [K]
-
-    # Step 2: ground reference with the same T3
-    P3_GR = 101325.0 * (1 + eta_comp * (T3_alt / 288.15 - 1))**(1 / k)   # Eq. 11 [Pa]
-    F_GR = (P3_GR / 101325.0 - 1) / (OPR - 1)                   # Eq. 12, F_GR/F00 [-]
-
-    # Step 3: linear interpolation of ground EIs vs thrust (4-point method)
-    i = np.argsort(F_LTO)
-    EI_mass_GR = np.interp(F_GR, F_LTO[i], EI_mass_LTO[i])      # [mg/kg]
-    EI_num_GR = np.interp(F_GR, F_LTO[i], EI_num_LTO[i])        # [#/kg]
-
-    # Step 4: ground to altitude (Eq. 15, 16)
-    EI_mass = EI_mass_GR * (P3_alt / P3_GR)**1.35 * EF**2.5     # [mg/kg]
-    EI_num = EI_mass * EI_num_GR / EI_mass_GR                   # [#/kg]
+    i = np.argsort(ff_LTO)                                      # interp needs increasing x
+    EI_mass = np.interp(ff_SL, ff_LTO[i], EI_mass_LTO[i])       # linear (log-log fails if any EI = 0) [mg/kg]
+    EI_num = np.interp(ff_SL, ff_LTO[i], EI_num_LTO[i])         # [#/kg]
     return EI_mass, EI_num
