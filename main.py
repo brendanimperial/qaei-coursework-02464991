@@ -6,7 +6,8 @@
 import numpy as np
 from qaei_missionandemissions_helpers import (dms_to_deg, isa, calc_LTO, cruise_mission, calc_mass_end,
                         cruise_fuel, calc_fuel_emissions, NOx_EI_BFFM2, nvPM_EI_BFFM2)
-from qaei_ADVANCEDmissionandemissions_helpers import nvPM_EI_MEEM
+from qaei_ADVANCEDmissionandemissions_helpers import (nvPM_EI_MEEM, load_ps_params,
+                        reynolds_number, lift_coefficient)
 
 # ---------------- Scenario ----------------
 airline = "Legacy"
@@ -115,3 +116,14 @@ print("Cruise EI nvPM mass:", EI_nvPM_mass_cruise, "mg/kg")
 print("Cruise EI nvPM number:", EI_nvPM_num_cruise, "#/kg")
 print("Cruise nvPM mass (total):", nvPM_mass_cruise, "kg")
 print("Cruise nvPM number (total):", nvPM_num_cruise, "#")
+
+# ------------------ ADVANCED METHOOOOOD! ------------------------
+
+# Poll-Schumann fuel burn
+ps = load_ps_params("A21N")                                     # PS aircraft parameters
+mass_end_PS = ps["OEM_i_kg"] + seats * 100.0 * load_factor      # end-of-cruise mass, PS-table empty mass [kg]
+
+Re = reynolds_number(ps["Sref_m2"], mach_cruise, T_cruise, p_cruise)
+CL = lift_coefficient(mass_end_PS, mach_cruise, p_cruise, ps["Sref_m2"])
+print("PS Reynolds number:", Re)
+print("PS lift coefficient (end of cruise):", CL)
